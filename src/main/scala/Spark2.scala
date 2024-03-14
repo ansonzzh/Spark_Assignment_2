@@ -12,15 +12,42 @@ object Spark2 {
     val trainData = spark.read.option("inferSchema", "true").option("header", "true").csv("src/titanic/train.csv")
     val testData = spark.read.option("inferSchema", "true").option("header", "true").csv("src/titanic/test.csv")
 
-    val filledTrainData = fillMissingValues(trainData)
-    val filledTestData = fillMissingValues(testData)
+    // Exploratory Data Analysis- Follow up on the previous spark assignment 1 and explain a few statistics. (20 pts)
+    println(s"Number of trainData rows: ${trainData.count()}")
+    println(s"Number of trainData columns: ${trainData.columns.length}")
+    println(s"Number of testData rows: ${testData.count()}")
+    println(s"Number of testData columns: ${testData.columns.length}")
+
+    trainData.show(5)
+    testData.show(5)
+
+    trainData.columns.foreach { column =>
+      val missingValues = trainData.filter(trainData(column).isNull || trainData(column) === "" || trainData(column).isNaN).count()
+      if (missingValues > 0) {
+        println(s"Number of missing values in trainData-$column: $missingValues")
+      }
+    }
+
+    testData.columns.foreach { column =>
+      val missingValues = testData.filter(testData(column).isNull || testData(column) === "" || testData(column).isNaN).count()
+      if (missingValues > 0) {
+        println(s"Number of missing values in testData-$column: $missingValues")
+      }
+    }
+
+    // Feature Engineering - Create new attributes that may be derived from the existing attributes.
+    val trainDataWithFamilySize = addFamilySize(trainData)
+    val testDataWithFamilySize = addFamilySize(testData)
+
+    val filledTrainData = fillMissingValues(trainDataWithFamilySize)
+    val filledTestData = fillMissingValues(testDataWithFamilySize)
 
     val Array(trainingData, testDataSplit) = filledTrainData.randomSplit(Array(0.8, 0.2))
 
     val labelIndexer = new StringIndexer().setInputCol("Survived").setOutputCol("indexedLabel").fit(trainingData)
     val genderIndexer = new StringIndexer().setInputCol("Sex").setOutputCol("genderIndex")
     val embarkedIndexer = new StringIndexer().setInputCol("Embarked").setOutputCol("embarkedIndex")
-    val assembler = new VectorAssembler().setInputCols(Array("Pclass", "genderIndex", "Age", "SibSp", "Parch", "Fare", "embarkedIndex")).setOutputCol("features")
+    val assembler = new VectorAssembler().setInputCols(Array("Pclass", "genderIndex", "Age", "SibSp", "Parch", "Fare", "embarkedIndex", "FamilySize")).setOutputCol("features")
 
     val rf = new RandomForestClassifier().setLabelCol("indexedLabel").setFeaturesCol("features").setNumTrees(10)
     val labelConverter = new IndexToString().setInputCol("prediction").setOutputCol("predictedLabel").setLabels(labelIndexer.labels)
@@ -29,6 +56,7 @@ object Spark2 {
 
     val model = pipeline.fit(trainingData)
 
+    // Prediction - Use the train.csv to train a Machine Learning model of your choice & test it on the test.csv.
     val predictions = model.transform(testDataSplit)
     val evaluator = new MulticlassClassificationEvaluator().setLabelCol("indexedLabel").setPredictionCol("prediction").setMetricName("accuracy")
     val accuracy = evaluator.evaluate(predictions)
@@ -50,5 +78,8 @@ object Spark2 {
       "Fare" -> fareMedian,
       "Embarked" -> mostCommonEmbarked
     ))
+  }
+  def addFamilySize(dataFrame: DataFrame): DataFrame = {
+    dataFrame.withColumn("FamilySize", col("SibSp") + col("Parch"))
   }
 }
